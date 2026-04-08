@@ -4,14 +4,6 @@
 struct Client {
    sf::IpAddress ip;
    unsigned short port;
-
-   bool operator == (const Client &other) const {
-      return ip == other.ip && port == other.port;
-   }
-   
-   bool operator != (const Client &other) const {
-      return !(*this == other);
-   }
 };
 
 // Helper functions
@@ -25,6 +17,7 @@ int nextFreeSpot(const std::unordered_map<int, Client> &clients) {
 // Main
 
 int main() {
+   // UDP
    sf::UdpSocket socket;
    if (socket.bind(sf::Socket::AnyPort) != sf::Socket::Status::Done) {
       printf("Could not bind to port %d!\n", socket.getLocalPort());
@@ -34,38 +27,76 @@ int main() {
    printf("Server listening on port %d...\n", socket.getLocalPort());
    std::unordered_map<int, Client> clients;
 
+   // TCP (initial)
+   std::vector<Point> history; // for sending it to the new clients
+   history.reserve(512);
+
+   sf::TcpListener listener;
+   listener.listen(socket.getLocalPort() + 1);
+   listener.setBlocking(false);
+
+   sf::SocketSelector selector;
+   selector.add(listener);
+   selector.add(socket);
+
+   // Server loop
    while (true) {
-      sf::Packet packet;
-      sf::IpAddress senderIp;
-      unsigned short senderPort;
+      if (selector.wait()) {
+         if (selector.isReady(listener)) {
+            sf::TcpSocket tcp;
+            listener.accept(tcp);
 
-      if (socket.receive(packet, senderIp, senderPort) != sf::Socket::Status::Done) {
-         continue;
-      }
+            int newId = nextFreeSpot(clients);
+            sf::Packet info;
+            info << newId << (int)history.size();
+            for (const Point &stroke: history) {
+               info << stroke;
+            }
 
-      Client sender {senderIp, senderPort};
-      PacketType data;
-      int id;
-      packet >> data >> id;
+            tcp.send(info);
+            printf("Player %d joined.\n", newId);
+            clients[newId] = Client{tcp.getRemoteAddress(), 0};
+            tcp.disconnect();
+         }
+         else if (selector.isReady(socket)) {
+            sf::Packet packet;
+            sf::IpAddress senderIp;
+            unsigned short senderPort;
 
-      if (data == PTconnect) {
-         int id = nextFreeSpot(clients);
+            if (socket.receive(packet, senderIp, senderPort) != sf::Socket::Status::Done) {
+               continue;
+            }
 
-         clients[id] = sender;
-         printf("Player %d joined %s:%d\n", id, senderIp.toString().c_str(), senderPort);
+            PacketType data;
+            int id;
+            packet >> data >> id;
 
-         sf::Packet info;
-         info << id;
-         socket.send(info, sender.ip, sender.port);
-      }
-      else if (data == PTdisconnect) {
-         printf("Player %d disconnected.\n", id);
-         clients.erase(id);
-      }
-      else if (data == PTupdate) {
-         for (const auto &[id, client]: clients) {
-            if (client != sender) {
-               socket.send(packet, client.ip, client.port);
+            if (data == PTdisconnect) {
+               printf("Player %d disconnected.\n", id);
+               clients.erase(id);
+            }
+            else if (data == PTupdate) {
+               Point point;
+               packet >> point.color >> point.x >> point.y >> point.size;
+
+               bool drawing;
+               packet >> drawing;
+               if (drawing) {
+                  history.push_back(point);
+               }
+
+               for (auto &[cid, client]: clients) {
+                  if (client.port == 0 && cid == id) {
+                     client.port = senderPort;
+                     printf("Player %d UDP port registered.\n", cid);
+                  }
+               }
+
+               for (auto &[cid, client]: clients) {
+                  if (client.port != 0 && (client.port != senderPort || client.ip != senderIp)) {
+                     socket.send(packet, client.ip, client.port);
+                  }
+               }
             }
          }
       }

@@ -5,8 +5,20 @@
 
 using PacketType = short;
 constexpr PacketType PTupdate = 0,
-                     PTconnect = 1,
-                     PTdisconnect = 2;
+                     PTdisconnect = 1;
+
+struct Point {
+   float x, y, size;
+   int color;
+};
+
+inline sf::Packet &operator << (sf::Packet &packet, const Point &p) {
+   return packet << p.x << p.y << p.size << p.color;
+}
+
+inline sf::Packet &operator >> (sf::Packet &packet, Point &p) {
+   return packet >> p.x >> p.y >> p.size >> p.color;
+}
 
 struct StrokeEvent {
    float x, y, size;

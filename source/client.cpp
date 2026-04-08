@@ -1,9 +1,6 @@
 #include "packet.hpp"
-#include <atomic>
 #include <iostream>
-#include <mutex>
 #include <raylib.h>
-#include <thread>
 
 // Some setup...
 
@@ -26,29 +23,39 @@ constexpr Color colors[colorCount] {
   {0, 0, 0, 255},       // rgb(0, 0, 0)
 };
 
-struct Point {
-   float x, y, size;
-   int color;
-};
-
-std::vector<Point> queue;
-std::atomic<bool> quit = false;
-std::mutex messageMutex;
-
-float brushSize = 5.0f;
-unsigned short port = 0;
-int id = 0;
-int color = 0;
-
-void sendMessages(sf::UdpSocket &socket);
-void receiveMessages(sf::UdpSocket &socket);
-void gameLoop();
-
 // Main
 
 int main() {
+   std::vector<Point> queue;
+   queue.reserve(512);
+   
+   float brushSize = 5.0f;
+   unsigned short port = 0;
+   int id = 0;
+   int color = 0;
+
    printf("Input server's port: ");
    std::cin >> port;
+
+   // Use TCP to retrieve the initial information such as ID and stroke history
+   sf::TcpSocket tcp;
+   if (tcp.connect("127.0.0.1", port + 1) != sf::Socket::Status::Done) {
+      printf("Could not connect TCP to port %d (%d for UDP).\n", port + 1, port);
+      exit(EXIT_FAILURE);
+   }
+
+   sf::Packet info;
+   tcp.receive(info);
+   info >> id;
+
+   int historySize;
+   info >> historySize;
+   queue.resize(historySize);
+
+   for (Point &stroke: queue) {
+      info >> stroke;
+   }
+   tcp.disconnect();
 
    sf::UdpSocket socket;
    if (socket.bind(sf::Socket::AnyPort) != sf::Socket::Status::Done) {
@@ -56,54 +63,29 @@ int main() {
       exit(EXIT_FAILURE);
    }
 
-   sf::Packet helloPacket;
-   helloPacket << PTconnect << 0;
-   socket.send(helloPacket, "127.0.0.1", port);
-
-   sf::Packet startingPacket;
-   sf::IpAddress address;
-   socket.receive(startingPacket, address, port);
-   startingPacket >> id;
-
    socket.setBlocking(false);
    printf("Connected to the server!\n");
 
-   std::thread send(sendMessages, std::ref(socket));
-   std::thread receive(receiveMessages, std::ref(socket));
-   std::thread game(gameLoop);
+   SetConfigFlags(FLAG_VSYNC_HINT);
+   InitWindow(800, 600, "Paint Together");
+   RenderTexture2D target = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
 
-   if (send.joinable())    send.join();
-   if (receive.joinable()) receive.join();
-   if (game.joinable())    game.join();
+   while (!WindowShouldClose()) {
+      // Send UDP
 
-   sf::Packet endPacket;
-   endPacket << PTdisconnect << id;
-   socket.send(endPacket, "127.0.0.1", port);
-   
-   printf("Disconnected.\n");
-   socket.unbind();
-}
-
-void sendMessages(sf::UdpSocket &socket) {
-   while (!quit) {
       sf::Packet packet;
       StrokeEvent event {GetMousePosition().x, GetMousePosition().y, brushSize, id, color, IsMouseButtonDown(MOUSE_BUTTON_LEFT)};
       packet << event;
-
-      std::lock_guard<std::mutex> lock(messageMutex);
       socket.send(packet, "127.0.0.1", port);
-   }
-}
 
-void receiveMessages(sf::UdpSocket &socket) {
-   while (!quit) {
-      sf::Packet packet;
-      std::lock_guard<std::mutex> lock(messageMutex);
+      while (true) {
+         sf::Packet packet;
+         sf::IpAddress sender;
+         unsigned short senderPort;
 
-      sf::IpAddress sender;
-      unsigned short senderPort;
-
-      if (socket.receive(packet, sender, senderPort) == sf::Socket::Status::Done) {
+         if (socket.receive(packet, sender, senderPort) != sf::Socket::Status::Done) {
+            break;
+         }
          PacketType type;
          packet >> type;
 
@@ -117,15 +99,7 @@ void receiveMessages(sf::UdpSocket &socket) {
             queue.push_back({event.x, event.y, event.size, event.color});
          }
       }
-   }
-}
 
-void gameLoop() {
-   SetConfigFlags(FLAG_VSYNC_HINT);
-   InitWindow(800, 600, "Paint Together");
-   RenderTexture2D target = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
-
-   while (!WindowShouldClose()) {
       // Update controls
       brushSize += GetMouseWheelMove() * 5;
       brushSize = std::clamp(brushSize, 2.0f, 50.0f);
@@ -177,5 +151,11 @@ void gameLoop() {
 
    UnloadRenderTexture(target);
    CloseWindow();
-   quit = true;
+
+   sf::Packet endPacket;
+   endPacket << PTdisconnect << id;
+   socket.send(endPacket, "127.0.0.1", port);
+   
+   printf("Disconnected.\n");
+   socket.unbind();
 }
