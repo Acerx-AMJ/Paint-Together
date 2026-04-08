@@ -10,17 +10,17 @@ constexpr PacketType PTupdate = 0,
 
 struct StrokeEvent {
    float x, y, size;
-   int id;
+   int id, color;
    bool drawing;
 };
 
 inline sf::Packet &operator << (sf::Packet &packet, const StrokeEvent &e) {
-   return packet << PTupdate << e.id << e.x << e.y << e.size << e.drawing;
+   return packet << PTupdate << e.id << e.color << e.x << e.y << e.size << e.drawing;
 }
 
 // Id and packet type must be checked beforehand
 inline sf::Packet &operator >> (sf::Packet &packet, StrokeEvent &e) {
-   return packet >> e.x >> e.y >> e.size >> e.drawing;
+   return packet >> e.color >> e.x >> e.y >> e.size >> e.drawing;
 }
 
 #endif
