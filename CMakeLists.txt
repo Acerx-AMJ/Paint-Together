@@ -7,8 +7,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_compile_options(-Wall)
 
 include_directories(${PROJECT_SOURCE_DIR}/include)
-file(GLOB SOURCES ${PROJECT_SOURCE_DIR}/source/*.cpp)
+add_executable(server source/server.cpp)
+add_executable(client source/client.cpp)
 
-add_executable(${PROJECT_NAME} ${SOURCES})
 find_package(raylib REQUIRED)
-target_link_libraries(${PROJECT_NAME} PRIVATE raylib)
+find_package(SFML 2.6 COMPONENTS network REQUIRED)
+target_link_libraries(server PRIVATE raylib sfml-network)
+target_link_libraries(client PRIVATE raylib sfml-network)
