@@ -2,8 +2,14 @@
 #include <atomic>
 #include <iostream>
 #include <mutex>
+#include <raylib.h>
 #include <thread>
 
+struct Point {
+   float x, y, size;
+};
+
+std::vector<Point> queue;
 std::atomic<bool> quit = false;
 std::mutex messageMutex;
 
@@ -41,9 +47,11 @@ int main() {
 
    std::thread send(sendMessages, std::ref(socket));
    std::thread receive(receiveMessages, std::ref(socket));
+   std::thread game(gameLoop);
 
    if (send.joinable())    send.join();
    if (receive.joinable()) receive.join();
+   if (game.joinable())    game.join();
 
    sf::Packet endPacket;
    endPacket << PTdisconnect << id;
@@ -54,44 +62,66 @@ int main() {
 }
 
 void sendMessages(sf::UdpSocket &socket) {
-   while (true) {
-      // printf("Input your message ('exit' to exit): ");
-      // std::string message;
-      // std::getline(std::cin >> std::ws, message);
+   while (!quit) {
+      sf::Packet packet;
+      StrokeEvent event {GetMousePosition().x, GetMousePosition().y, brushSize, id, IsMouseButtonDown(MOUSE_BUTTON_LEFT)};
+      packet << event;
 
-      // if (message == "exit") {
-      //    quit = true;
-      //    printf("Exiting...\n");
-      //    return;
-      // }
-
-      // printf("%s\n", message.c_str());
-      // sf::Packet packet;
-      // packet << message;
-
-      // std::lock_guard<std::mutex> lock(messageMutex);
-      // socket.send(packet, "127.0.0.1", port);
+      std::lock_guard<std::mutex> lock(messageMutex);
+      socket.send(packet, "127.0.0.1", port);
    }
 }
 
 void receiveMessages(sf::UdpSocket &socket) {
    while (!quit) {
-      // sf::Packet packet;
-      // std::lock_guard<std::mutex> lock(messageMutex);
-      // sf::IpAddress sender;
-      // unsigned short senderPort;
+      sf::Packet packet;
+      std::lock_guard<std::mutex> lock(messageMutex);
 
-      // if (socket.receive(packet, sender, senderPort) == sf::Socket::Status::Done) {
-      //    std::string message;
-      //    packet >> message;
+      sf::IpAddress sender;
+      unsigned short senderPort;
 
-      //    clearLine(0);
-      //    printf("%s\n", message.c_str());
-      //    printf("Input your message ('exit' to exit): ");
-      // }
+      if (socket.receive(packet, sender, senderPort) == sf::Socket::Status::Done) {
+         PacketType type;
+         packet >> type;
+
+         int id;
+         packet >> id;
+
+         StrokeEvent event;
+         packet >> event;
+
+         if (event.drawing) {
+            queue.push_back({event.x, event.y, event.size});
+         }
+      }
    }
 }
 
 void gameLoop() {
+   SetConfigFlags(FLAG_VSYNC_HINT);
+   InitWindow(800, 600, "Paint Together");   
+   RenderTexture2D target = LoadRenderTexture(GetScreenWidth(), GetScreenHeight());
 
+   while (!WindowShouldClose()) {
+      BeginTextureMode(target);
+      for (const Point &point: queue) {
+         DrawCircle(point.x, point.y, point.size, BLACK);
+      }
+      queue.clear();
+
+      if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+         DrawCircle(GetMouseX(), GetMouseY(), brushSize, BLACK);
+      }
+      EndTextureMode();
+
+      BeginDrawing();
+      ClearBackground(WHITE);
+      DrawTextureRec(target.texture, {0, 0, (float)target.texture.width, (float)-target.texture.height}, {0, 0}, WHITE);
+      DrawCircle(GetMouseX(), GetMouseY(), brushSize, BLACK);
+      EndDrawing();
+   }
+
+   UnloadRenderTexture(target);
+   CloseWindow();
+   quit = true;
 }

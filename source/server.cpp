@@ -1,5 +1,4 @@
 #include "packet.hpp"
-#include <iostream>
 #include <unordered_map>
 
 struct Client {
@@ -26,17 +25,13 @@ int nextFreeSpot(const std::unordered_map<int, Client> &clients) {
 // Main
 
 int main() {
-   unsigned short port = 0;
-   printf("Input server port: ");
-   std::cin >> port;
-
    sf::UdpSocket socket;
-   if (socket.bind(port) != sf::Socket::Status::Done) {
-      printf("Could not bind to port %d!\n", port);
+   if (socket.bind(sf::Socket::AnyPort) != sf::Socket::Status::Done) {
+      printf("Could not bind to port %d!\n", socket.getLocalPort());
       return EXIT_FAILURE;
    }
 
-   printf("Server listening on port %d...\n", port);
+   printf("Server listening on port %d...\n", socket.getLocalPort());
    std::unordered_map<int, Client> clients;
 
    while (true) {
@@ -63,23 +58,16 @@ int main() {
          info << id;
          socket.send(info, sender.ip, sender.port);
       }
-
-      if (data == PTdisconnect) {
+      else if (data == PTdisconnect) {
          printf("Player %d disconnected.\n", id);
          clients.erase(id);
-         continue;
       }
-
-      if (data == PTupdate) {
-
+      else if (data == PTupdate) {
+         for (const auto &[id, client]: clients) {
+            if (client != sender) {
+               socket.send(packet, client.ip, client.port);
+            }
+         }
       }
-
-      // sf::Packet echoPacket;
-      // echoPacket << data;
-      // for (const auto &[id, client]: clients) {
-      //    if (client != sender) {
-      //       socket.send(echoPacket, client.ip, client.port);
-      //    }
-      // }
    }
 }
