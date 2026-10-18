@@ -30,16 +30,28 @@ int main() {
    queue.reserve(512);
    
    float brushSize = 5.0f;
+   sf::IpAddress IPAddress;
    unsigned short port = 0;
    int id = 0;
    int color = 0;
 
+   do {
+      printf("Input server's IP: ");
+      std::string IP;
+      std::getline(std::cin >> std::ws, IP);
+      IPAddress = sf::IpAddress(IP);
+      if (IPAddress.toInteger() == 0) {
+         printf("Invalid IP address format, try again. ");
+      }
+   }
+   while (IPAddress.toInteger() == 0);
+
    printf("Input server's port: ");
-   std::cin >> port;
+   std::cin >> std::ws >> port;
 
    // Use TCP to retrieve the initial information such as ID and stroke history
    sf::TcpSocket tcp;
-   if (tcp.connect("127.0.0.1", port + 1) != sf::Socket::Status::Done) {
+   if (tcp.connect(IPAddress, port + 1) != sf::Socket::Status::Done) {
       printf("Could not connect TCP to port %d (%d for UDP).\n", port + 1, port);
       exit(EXIT_FAILURE);
    }
@@ -76,7 +88,7 @@ int main() {
       sf::Packet packet;
       StrokeEvent event {GetMousePosition().x, GetMousePosition().y, brushSize, id, color, IsMouseButtonDown(MOUSE_BUTTON_LEFT)};
       packet << event;
-      socket.send(packet, "127.0.0.1", port);
+      socket.send(packet, IPAddress, port);
 
       while (true) {
          sf::Packet packet;
@@ -154,7 +166,7 @@ int main() {
 
    sf::Packet endPacket;
    endPacket << PTdisconnect << id;
-   socket.send(endPacket, "127.0.0.1", port);
+   socket.send(endPacket, IPAddress, port);
    
    printf("Disconnected.\n");
    socket.unbind();

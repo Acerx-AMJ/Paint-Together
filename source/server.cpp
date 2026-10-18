@@ -24,7 +24,7 @@ int main() {
       return EXIT_FAILURE;
    }
 
-   printf("Server listening on port %d...\n", socket.getLocalPort());
+   printf("Server listening on %s:%d...\n", sf::IpAddress::getLocalAddress().toString().c_str(), socket.getLocalPort());
    std::unordered_map<int, Client> clients;
 
    // TCP (initial)
